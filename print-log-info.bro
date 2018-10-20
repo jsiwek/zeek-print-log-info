@@ -3,39 +3,50 @@
 # https://github.com/bro/bro/commit/1f450c05102be6dd7ebcc2c5901d5a3a231cd675
 # (Was not included in 2.6 release)
 
-@load test-all-policy
+@load broxygen
 
-function log_record_ids(): id_table
+option log_desc_file = fmt("bro-%s.%s-log-descs.txt",
+                           Version::info$major, Version::info$minor);
+
+event bro_done() &priority = -100
 	{
-	local globals = global_ids();
-	local rval = id_table();
-
-	 for ( id in globals )
-	 	{
-	 	if ( /.*::.*Info$/ !in id )
-	 		next;
-
-	 	rval[id] = globals[id];
-		}
-
-	return rval;
+	print "==========================================================";
+	print "Bro log description output to file", log_desc_file;
+	print "==========================================================";
 	}
 
 event bro_init() &priority = -100
 	{
+	local f = open(log_desc_file);
+	local path_to_id_map: table[string] of Log::ID = table();
+	local paths: vector of string = vector();
+	local stream: Log::Stream;
+	local id: Log::ID;
+
 	for ( id in Log::active_streams )
 		{
-		local stream = Log::active_streams[id];
+		stream = Log::active_streams[id];
 
 		if ( ! stream?$path )
 			next;
+
+		path_to_id_map[stream$path] = id;
+		paths += stream$path;
+		}
+
+	sort(paths, strcmp);
+
+	for ( i in paths )
+		{
+		id = path_to_id_map[paths[i]];
+		stream = Log::active_streams[id];
 
 		local log_file = fmt("%s.log", stream$path);
 		local fields = record_fields(stream$columns);
 		local info_id = cat(stream$columns);
 		local field_names = record_type_to_vector(info_id);
 
-		print log_file;
+		print f, log_file;
 
 		for ( idx in field_names )
 			{
@@ -56,9 +67,9 @@ event bro_init() &priority = -100
 			if ( |field_desc| > 0 && /[[:alnum:]]/ !in field_desc[0] )
 				field_desc = "";
 
-			print fmt("  %s: %s - %s", field, field_props$type_name, field_desc);
+			print f, fmt("  %s: %s - %s", field, field_props$type_name, field_desc);
 			}
 
-		print "";
+		print f, "";
 		}
 	}
