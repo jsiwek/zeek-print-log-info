@@ -3,8 +3,8 @@
 # https://github.com/bro/bro/commit/1f450c05102be6dd7ebcc2c5901d5a3a231cd675
 # (Was not included in 2.6 release)
 
-#@load broxygen
-@load test-all-policy
+@load broxygen
+#@load test-all-policy
 
 module PrintLogs;
 
@@ -74,6 +74,13 @@ export {
 	};
 }
 
+global csvs_written: set[string] = set();
+
+event bro_done() &priority = -100
+	{
+	for ( f in csvs_written )
+		print fmt("wrote %s", f);
+	}
 event bro_init() &priority = -100
 	{
 	local path_to_id_map: table[string] of Log::ID = table();
@@ -159,6 +166,9 @@ event bro_init() &priority = -100
 
 			if ( csv )
 				{
+				if ( |field_desc| > 0 && field_desc[|field_desc| - 1] == "." )
+					field_desc = field_desc[0:|field_desc| - 1];
+
 				field_desc = gsub(field_desc, /\"/, "'");
 				print csv_file, fmt("\"%s\",\"%s\",\"%s\"", field,
 				                    field_props$type_name, field_desc);
@@ -170,7 +180,7 @@ event bro_init() &priority = -100
 
 		if ( csv )
 			{
-			print fmt("wrote %s", csv_filename);
+			add csvs_written[csv_filename];
 			close(csv_file);
 			}
 		else
