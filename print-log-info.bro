@@ -4,6 +4,7 @@
 # (Was not included in 2.6 release)
 
 @load broxygen
+#@load test-all-policy
 
 option log_desc_file = fmt("bro-%s.%s-log-descs.txt",
                            Version::info$major, Version::info$minor);
@@ -59,7 +60,16 @@ event bro_init() &priority = -100
 			local fq_field = fmt("%s$%s", info_id, field);
 			local field_desc = get_record_field_comments(fq_field);
 			field_desc = gsub(field_desc, /\x0a/, " ");
+			# note: period_idx is 1-based
 			local period_idx = strstr(field_desc, ".");
+
+			if ( period_idx < |field_desc| )
+				{
+				if ( field_desc[period_idx] !in set(" ", "\n") )
+					# Likely the period doesn't indicate the end of a sentence
+					# TODO: could look for the next period
+					period_idx = 0;
+				}
 
 			if ( period_idx != 0 )
 				field_desc = field_desc[0:period_idx];
