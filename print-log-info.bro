@@ -2,15 +2,11 @@
 #
 # * Set environment variable ZEEK_ALLOW_INIT_ERRORS=1 before running Zeek
 #   with this script.
-#
-# * Requires a version of Bro/Zeek with the improvements from:
-#   https://github.com/bro/bro/commit/1f450c05102be6dd7ebcc2c5901d5a3a231cd675
-#   (Was not included in 2.6 release)
 
 @load zeekygen
 #@load test-all-policy
 
-module PrintLogs;
+module PrintLogInfo;
 
 export {
 	option csv = T;
@@ -40,6 +36,9 @@ export {
 		["loaded_scripts.log"] = "Show all loaded scripts",
 		["modbus.log"] = "Modbus commands and responses",
 		["modbus_register_change.log"] = "Modbus holding register changes",
+		["mqtt_connect.log"] = "MQTT connection request/status",
+		["mqtt_publish.log"] = "Messages published over MQTT",
+		["mqtt_subscribe.log"] = "MQTT topic (un)subscribe requests",
 		["mysql.log"] = "MySQL",
 		["netcontrol.log"] = "NetControl actions",
 		["netcontrol_catch_release.log"] = "NetControl catch and releases",
@@ -80,12 +79,88 @@ export {
 
 global csvs_written: set[string] = set();
 
-event bro_done() &priority = -100
+function shorten_list_description(field_desc: string): string
+	{
+	# An edge case to try to better format descriptions that look like a
+	# list.  E.g. "Here's a list:\n\n* 1st item.\n* 2nd item.\n".  There,
+	# having the field description extend to the first item looks weird, so
+	# stop at the colon.
+
+	# note: strstr results are 1-based indexing
+	local first_newline_idx = strstr(field_desc, "\n");
+
+	if ( first_newline_idx == 0 )
+		return field_desc;
+
+	local first_line = field_desc[:first_newline_idx - 1];
+	local first_line_len = |first_line|;
+
+	if ( first_line[first_line_len - 1] != ":" )
+		return field_desc;
+
+	if ( |field_desc| < first_line_len + 2 )
+		return field_desc;
+
+
+	if ( field_desc[first_line_len:first_line_len + 2] == "\n\n" )
+		return first_line[:first_line_len - 2];
+
+	return field_desc;
+	}
+
+function shorten_field_description(field_desc: string): string
+	{
+	local tmp = shorten_list_description(field_desc);
+
+	if ( tmp != field_desc )
+		return tmp;
+
+	# Remove newlines.
+	field_desc = gsub(field_desc, /\x0a/, " ");
+	# note: period_idx is 1-based
+	local period_idx = strstr(field_desc, ".");
+
+	if ( period_idx < |field_desc| )
+		{
+		if ( field_desc[period_idx] !in set(" ", "\n") )
+			# Likely the period doesn't indicate the end of a sentence
+			# TODO: could look for the next period
+			period_idx = 0;
+		}
+
+	if ( period_idx != 0 )
+		field_desc = field_desc[0:period_idx];
+
+	if ( |field_desc| > 0 && /[[:alnum:]]/ !in field_desc[0] )
+		field_desc = "";
+
+	return field_desc;
+	}
+
+function remove_zeekygen_xrefs(s: string): string
+	{
+	local rval = gsub(s, /:zeek:[[:alnum:]]*:/, "");
+	return rval;
+	}
+
+function sanitize_field_description_for_csv(field_desc: string): string
+	{
+	# Remove trailing period if it exists.
+	if ( |field_desc| > 0 && field_desc[|field_desc| - 1] == "." )
+		field_desc = field_desc[0:|field_desc| - 1];
+
+	# Handle quotes right.
+	field_desc = gsub(field_desc, /\"/, "'");
+	return field_desc;
+	}
+
+event zeek_done() &priority = -100
 	{
 	for ( f in csvs_written )
 		print fmt("wrote %s", f);
 	}
-event bro_init() &priority = -100
+
+event zeek_init() &priority = -100
 	{
 	local path_to_id_map: table[string] of Log::ID = table();
 	local paths: vector of string = vector();
@@ -150,30 +225,12 @@ event bro_init() &priority = -100
 
 			local fq_field = fmt("%s$%s", info_id, field);
 			local field_desc = get_record_field_comments(fq_field);
-			field_desc = gsub(field_desc, /\x0a/, " ");
-			# note: period_idx is 1-based
-			local period_idx = strstr(field_desc, ".");
-
-			if ( period_idx < |field_desc| )
-				{
-				if ( field_desc[period_idx] !in set(" ", "\n") )
-					# Likely the period doesn't indicate the end of a sentence
-					# TODO: could look for the next period
-					period_idx = 0;
-				}
-
-			if ( period_idx != 0 )
-				field_desc = field_desc[0:period_idx];
-
-			if ( |field_desc| > 0 && /[[:alnum:]]/ !in field_desc[0] )
-				field_desc = "";
+			field_desc = shorten_field_description(field_desc);
+			field_desc = remove_zeekygen_xrefs(field_desc);
 
 			if ( csv )
 				{
-				if ( |field_desc| > 0 && field_desc[|field_desc| - 1] == "." )
-					field_desc = field_desc[0:|field_desc| - 1];
-
-				field_desc = gsub(field_desc, /\"/, "'");
+				field_desc = sanitize_field_description_for_csv(field_desc);
 				print csv_file, fmt("\"%s\",\"%s\",\"%s\"", field,
 				                    field_props$type_name, field_desc);
 				}
@@ -189,6 +246,5 @@ event bro_init() &priority = -100
 			}
 		else
 			print "";
-
 		}
 	}
