@@ -1,0 +1,5 @@
+[package]
+depends = zeek >=3.0.0
+tags = log, logs, logging, introspection, csv
+description = Gathers and prints field descriptions for all Zeek logs.
+  The default output format is CSV files.
