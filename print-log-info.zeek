@@ -3,8 +3,7 @@
 # * Set environment variable ZEEK_ALLOW_INIT_ERRORS=1 before running Zeek
 #   with this script.
 
-@load zeekygen
-#@load test-all-policy
+@load ./all-zeek-scripts
 
 module PrintLogInfo;
 
